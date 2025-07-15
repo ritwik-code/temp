@@ -4,44 +4,154 @@ import * as UTIF from 'utif';
 const TiffUploader: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [pages, setPages] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    try {
-      const arrayBuffer = await file.arrayBuffer();
+    setLoading(true);
+    setError(null);
 
+    try {
+      console.log('Loading file:', file.name, 'Size:', file.size);
+      const arrayBuffer = await file.arrayBuffer();
+      console.log('ArrayBuffer loaded, size:', arrayBuffer.byteLength);
+
+      // Decode TIFF
       const ifds = UTIF.decode(arrayBuffer);
+      console.log('IFDs found:', ifds.length);
+      
       if (ifds.length === 0) {
         setError('No images found in the TIFF file.');
+        setLoading(false);
         return;
       }
 
-      UTIF.decodeImage(arrayBuffer, ifds[0]); // First page
-      const rgba = UTIF.toRGBA8(ifds[0]);
-      const { width, height } = ifds[0];
+      // Process all pages
+      const processedPages = [];
+      for (let i = 0; i < ifds.length; i++) {
+        try {
+          UTIF.decodeImage(arrayBuffer, ifds[i]);
+          processedPages.push(ifds[i]);
+        } catch (pageError) {
+          console.error(`Error processing page ${i}:`, pageError);
+        }
+      }
+
+      if (processedPages.length === 0) {
+        setError('Failed to decode any pages from the TIFF file.');
+        setLoading(false);
+        return;
+      }
+
+      setPages(processedPages);
+      setCurrentPage(0);
+      
+      // Display first page
+      displayPage(processedPages[0]);
+      
+    } catch (err) {
+      console.error('Failed to load TIFF:', err);
+      setError(`Failed to decode the TIFF file: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const displayPage = (ifd: any) => {
+    try {
+      const rgba = UTIF.toRGBA8(ifd);
+      const { width, height } = ifd;
 
       const canvas = canvasRef.current;
       if (canvas && width && height) {
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
-        const imageData = new ImageData(rgba, width, height);
-        ctx?.putImageData(imageData, 0, 0);
-        setError(null); // Clear previous errors
+        if (ctx) {
+          const imageData = new ImageData(new Uint8ClampedArray(rgba), width, height);
+          ctx.putImageData(imageData, 0, 0);
+        }
+        setError(null);
       }
     } catch (err) {
-      console.error('Failed to load TIFF:', err);
-      setError('Failed to decode the TIFF file.');
+      console.error('Failed to display page:', err);
+      setError('Failed to display the TIFF page.');
+    }
+  };
+
+  const goToPage = (pageIndex: number) => {
+    if (pageIndex >= 0 && pageIndex < pages.length) {
+      setCurrentPage(pageIndex);
+      displayPage(pages[pageIndex]);
     }
   };
 
   return (
-    <div>
-      <input type="file" accept=".tif,.tiff" onChange={handleFileChange} />
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      <canvas ref={canvasRef} style={{ marginTop: '1rem', border: '1px solid #ccc' }} />
+    <div style={{ padding: '20px' }}>
+      <div style={{ marginBottom: '20px' }}>
+        <input 
+          type="file" 
+          accept=".tif,.tiff" 
+          onChange={handleFileChange}
+          disabled={loading}
+        />
+        {loading && <span style={{ marginLeft: '10px', color: '#007bff' }}>Loading...</span>}
+      </div>
+      
+      {error && (
+        <div style={{ 
+          color: 'red', 
+          backgroundColor: '#ffebee', 
+          padding: '10px', 
+          borderRadius: '4px',
+          marginBottom: '20px'
+        }}>
+          {error}
+        </div>
+      )}
+      
+      {pages.length > 1 && (
+        <div style={{ marginBottom: '20px' }}>
+          <button 
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 0}
+            style={{ marginRight: '10px' }}
+          >
+            Previous
+          </button>
+          <span style={{ margin: '0 10px' }}>
+            Page {currentPage + 1} of {pages.length}
+          </span>
+          <button 
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === pages.length - 1}
+          >
+            Next
+          </button>
+        </div>
+      )}
+      
+      <canvas 
+        ref={canvasRef} 
+        style={{ 
+          marginTop: '1rem', 
+          border: '1px solid #ccc',
+          maxWidth: '100%',
+          height: 'auto'
+        }} 
+      />
+      
+      {pages.length > 0 && (
+        <div style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
+          Image dimensions: {pages[currentPage]?.width} × {pages[currentPage]?.height}
+        </div>
+      )}
     </div>
   );
 };
