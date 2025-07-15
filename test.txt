@@ -1,63 +1,49 @@
-✅ TiffViewer.jsx
-import React, { useEffect, useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import * as UTIF from 'utif';
 
-interface TiffViewerProps {
-  fileUrl: string;
-  pageIndex?: number;
-}
-
-const TiffViewer: React.FC<TiffViewerProps> = ({ fileUrl, pageIndex = 0 }) => {
+const TiffUploader: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const loadTIFF = async () => {
-      try {
-        const response = await fetch(fileUrl);
-        const buffer = await response.arrayBuffer();
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-        const ifds = UTIF.decode(buffer);
-        UTIF.decodeImage(buffer, ifds[pageIndex]);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
 
-        const rgba = UTIF.toRGBA8(ifds[pageIndex]); // Uint8ClampedArray
-        const { width, height } = ifds[pageIndex];
-
-        const canvas = canvasRef.current;
-        if (canvas && width && height) {
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          const imageData = new ImageData(rgba, width, height);
-          ctx?.putImageData(imageData, 0, 0);
-        }
-      } catch (err) {
-        console.error('Failed to render TIFF:', err);
+      const ifds = UTIF.decode(arrayBuffer);
+      if (ifds.length === 0) {
+        setError('No images found in the TIFF file.');
+        return;
       }
-    };
 
-    loadTIFF();
-  }, [fileUrl, pageIndex]);
+      UTIF.decodeImage(arrayBuffer, ifds[0]); // First page
+      const rgba = UTIF.toRGBA8(ifds[0]);
+      const { width, height } = ifds[0];
 
-  return <canvas ref={canvasRef} />;
-};
+      const canvas = canvasRef.current;
+      if (canvas && width && height) {
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        const imageData = new ImageData(rgba, width, height);
+        ctx?.putImageData(imageData, 0, 0);
+        setError(null); // Clear previous errors
+      }
+    } catch (err) {
+      console.error('Failed to load TIFF:', err);
+      setError('Failed to decode the TIFF file.');
+    }
+  };
 
-export default TiffViewer;
-
-export default TiffViewer;
-✅ Usage
-jsx
-Copy
-Edit
-import React from 'react';
-import TiffViewer from './TiffViewer';
-
-function App() {
   return (
-    <div className="App">
-      <h2>TIFF Image Viewer</h2>
-      <TiffViewer fileUrl="/images/sample.tif" />
+    <div>
+      <input type="file" accept=".tif,.tiff" onChange={handleFileChange} />
+      {error && <p style={{ color: 'red' }}>{error}</p>}
+      <canvas ref={canvasRef} style={{ marginTop: '1rem', border: '1px solid #ccc' }} />
     </div>
   );
-}
+};
 
-export default App;
+export default TiffUploader;
