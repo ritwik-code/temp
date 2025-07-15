@@ -1,0 +1,58 @@
+✅ TiffViewer.jsx
+jsx
+Copy
+Edit
+import React, { useEffect, useRef } from 'react';
+import TIFF from 'tiff.js';
+
+const TiffViewer = ({ fileUrl }) => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const loadTiff = async () => {
+      try {
+        const response = await fetch(fileUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        const tiff = new TIFF({ buffer: arrayBuffer });
+
+        const canvas = canvasRef.current;
+        const image = tiff.toCanvas(); // Gets canvas from TIFF
+        if (canvas && image) {
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(image, 0, 0);
+        }
+      } catch (error) {
+        console.error('Error loading TIFF file:', error);
+      }
+    };
+
+    loadTiff();
+  }, [fileUrl]);
+
+  return (
+    <div>
+      <canvas ref={canvasRef} />
+    </div>
+  );
+};
+
+export default TiffViewer;
+✅ Usage
+jsx
+Copy
+Edit
+import React from 'react';
+import TiffViewer from './TiffViewer';
+
+function App() {
+  return (
+    <div className="App">
+      <h2>TIFF Image Viewer</h2>
+      <TiffViewer fileUrl="/images/sample.tif" />
+    </div>
+  );
+}
+
+export default App;
