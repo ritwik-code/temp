@@ -1,13 +1,12 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import * as UTIF from 'utif';
 
 const TiffUploader: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [pages, setPages] = useState<any[]>([]);
-  const [currentPage, setCurrentPage] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [zoom, setZoom] = useState(1);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -17,43 +16,22 @@ const TiffUploader: React.FC = () => {
     setError(null);
 
     try {
-      console.log('Loading file:', file.name, 'Size:', file.size);
       const arrayBuffer = await file.arrayBuffer();
-      console.log('ArrayBuffer loaded, size:', arrayBuffer.byteLength);
-
-      // Decode TIFF
       const ifds = UTIF.decode(arrayBuffer);
-      console.log('IFDs found:', ifds.length);
-      
       if (ifds.length === 0) {
         setError('No images found in the TIFF file.');
         setLoading(false);
         return;
       }
-
-      // Process all pages
-      const processedPages = [];
+      // Decode all pages
       for (let i = 0; i < ifds.length; i++) {
         try {
           UTIF.decodeImage(arrayBuffer, ifds[i]);
-          processedPages.push(ifds[i]);
         } catch (pageError) {
           console.error(`Error processing page ${i}:`, pageError);
         }
       }
-
-      if (processedPages.length === 0) {
-        setError('Failed to decode any pages from the TIFF file.');
-        setLoading(false);
-        return;
-      }
-
-      setPages(processedPages);
-      setCurrentPage(0);
-      
-      // Display first page
-      displayPage(processedPages[0]);
-      
+      setPages(ifds);
     } catch (err) {
       console.error('Failed to load TIFF:', err);
       setError(`Failed to decode the TIFF file: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -62,35 +40,67 @@ const TiffUploader: React.FC = () => {
     }
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const displayPage = (ifd: any) => {
-    try {
-      const rgba = UTIF.toRGBA8(ifd);
-      const { width, height } = ifd;
+  // Zoom controls
+  const handleZoomIn = () => setZoom((z) => Math.min(z * 1.2, 10));
+  const handleZoomOut = () => setZoom((z) => Math.max(z / 1.2, 0.1));
+  const handleZoomReset = () => setZoom(1);
 
-      const canvas = canvasRef.current;
-      if (canvas && width && height) {
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          const imageData = new ImageData(new Uint8ClampedArray(rgba), width, height);
-          ctx.putImageData(imageData, 0, 0);
+  // Child component for each TIFF page
+  const TiffPageCanvas: React.FC<{ ifd: any; zoom: number; idx: number }> = ({ ifd, zoom, idx }) => {
+    const canvasRef = React.useRef<HTMLCanvasElement>(null);
+    React.useEffect(() => {
+      if (canvasRef.current && ifd.width && ifd.height) {
+        try {
+          const rgba = UTIF.toRGBA8(ifd);
+          canvasRef.current.width = ifd.width;
+          canvasRef.current.height = ifd.height;
+          const ctx = canvasRef.current.getContext('2d');
+          if (ctx) {
+            const imageData = new ImageData(new Uint8ClampedArray(rgba), ifd.width, ifd.height);
+            ctx.putImageData(imageData, 0, 0);
+          }
+        } catch (err) {
+          // ignore per-page errors
         }
-        setError(null);
       }
-    } catch (err) {
-      console.error('Failed to display page:', err);
-      setError('Failed to display the TIFF page.');
-    }
+    }, [ifd]);
+    return (
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ marginBottom: 4, color: '#888', fontSize: 13 }}>Page {idx + 1} ({ifd.width} × {ifd.height})</div>
+        <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+          <canvas
+            ref={canvasRef}
+            style={{
+              display: 'block',
+              maxWidth: '100%',
+              height: 'auto',
+              background: '#f8f8f8',
+              border: '1px solid #eee',
+              marginBottom: 8
+            }}
+          />
+        </div>
+      </div>
+    );
   };
 
-  const goToPage = (pageIndex: number) => {
-    if (pageIndex >= 0 && pageIndex < pages.length) {
-      setCurrentPage(pageIndex);
-      displayPage(pages[pageIndex]);
-    }
-  };
+  // Handle Ctrl+scroll for zoom
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if ((e.ctrlKey || e.metaKey) && pages.length > 0) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          setZoom((z) => Math.min(z * 1.1, 10));
+        } else if (e.deltaY > 0) {
+          setZoom((z) => Math.max(z / 1.1, 0.1));
+        }
+      }
+    };
+    const el = scrollContainerRef.current;
+    if (el) el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => { if (el) el.removeEventListener('wheel', handleWheel); };
+  }, [pages.length]);
 
   return (
     <div style={{ padding: '20px' }}>
@@ -103,7 +113,21 @@ const TiffUploader: React.FC = () => {
         />
         {loading && <span style={{ marginLeft: '10px', color: '#007bff' }}>Loading...</span>}
       </div>
-      
+
+      {/* Zoom controls */}
+      <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button onClick={handleZoomOut} style={{ fontSize: 18, width: 32 }}>-</button>
+        <span
+          style={{ minWidth: 60, textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
+          title="Click to reset zoom"
+          onClick={handleZoomReset}
+        >
+          {Math.round(zoom * 100)}%
+        </span>
+        <button onClick={handleZoomIn} style={{ fontSize: 18, width: 32 }}>+</button>
+        <button onClick={handleZoomReset} style={{ marginLeft: 12 }}>Reset</button>
+      </div>
+
       {error && (
         <div style={{ 
           color: 'red', 
@@ -115,43 +139,29 @@ const TiffUploader: React.FC = () => {
           {error}
         </div>
       )}
-      
-      {pages.length > 1 && (
-        <div style={{ marginBottom: '20px' }}>
-          <button 
-            onClick={() => goToPage(currentPage - 1)}
-            disabled={currentPage === 0}
-            style={{ marginRight: '10px' }}
-          >
-            Previous
-          </button>
-          <span style={{ margin: '0 10px' }}>
-            Page {currentPage + 1} of {pages.length}
-          </span>
-          <button 
-            onClick={() => goToPage(currentPage + 1)}
-            disabled={currentPage === pages.length - 1}
-          >
-            Next
-          </button>
-        </div>
-      )}
-      
-      <canvas 
-        ref={canvasRef} 
-        style={{ 
-          marginTop: '1rem', 
+
+      {/* Vertically scrollable, zoomable TIFF pages */}
+      <div
+        ref={scrollContainerRef}
+        style={{
+          maxHeight: '70vh',
+          overflowY: 'auto',
           border: '1px solid #ccc',
-          maxWidth: '100%',
-          height: 'auto'
-        }} 
-      />
-      
-      {pages.length > 0 && (
-        <div style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
-          Image dimensions: {pages[currentPage]?.width} × {pages[currentPage]?.height}
-        </div>
-      )}
+          borderRadius: 4,
+          background: '#fff',
+          margin: '0 auto',
+          padding: 12,
+          minHeight: 200,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 24
+        }}
+      >
+        {pages.map((ifd, idx) => (
+          <TiffPageCanvas key={idx} ifd={ifd} zoom={zoom} idx={idx} />
+        ))}
+      </div>
     </div>
   );
 };
