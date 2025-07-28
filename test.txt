@@ -45,8 +45,8 @@ const TiffUploader: React.FC = () => {
   const handleZoomOut = () => setZoom((z) => Math.max(z / 1.2, 0.1));
   const handleZoomReset = () => setZoom(1);
 
-  // Child component for each TIFF page
-  const TiffPageCanvas: React.FC<{ ifd: any; zoom: number; idx: number }> = ({ ifd, zoom, idx }) => {
+  // Child component for each TIFF page (no zoom here, zoom is on the group)
+  const TiffPageCanvas: React.FC<{ ifd: any; idx: number }> = ({ ifd, idx }) => {
     const canvasRef = React.useRef<HTMLCanvasElement>(null);
     React.useEffect(() => {
       if (canvasRef.current && ifd.width && ifd.height) {
@@ -65,21 +65,38 @@ const TiffUploader: React.FC = () => {
       }
     }, [ifd]);
     return (
-      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ marginBottom: 4, color: '#888', fontSize: 13 }}>Page {idx + 1} ({ifd.width} × {ifd.height})</div>
-        <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
-          <canvas
-            ref={canvasRef}
-            style={{
-              display: 'block',
-              maxWidth: '100%',
-              height: 'auto',
-              background: '#f8f8f8',
-              border: '1px solid #eee',
-              marginBottom: 8
-            }}
-          />
-        </div>
+      <div
+        style={{
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          margin: '0 auto',
+          background: '#f9f7f3',
+          borderRadius: 12,
+          boxShadow: '0 4px 24px 0 rgba(0,0,0,0.10), 0 1.5px 0 #e0e0e0',
+          padding: 32,
+          marginBottom: 48,
+          border: '1.5px solid #e0e0e0',
+          position: 'relative',
+          minWidth: 320,
+          maxWidth: 900
+        }}
+      >
+        <div style={{ marginBottom: 12, color: '#888', fontSize: 15, fontWeight: 500, letterSpacing: 1 }}>Page {idx + 1} ({ifd.width} × {ifd.height})</div>
+        <canvas
+          ref={canvasRef}
+          style={{
+            display: 'block',
+            maxWidth: '100%',
+            height: 'auto',
+            background: '#fff',
+            border: '1.5px solid #d0d0d0',
+            borderRadius: 6,
+            boxShadow: '0 2px 8px 0 rgba(0,0,0,0.07)',
+            marginBottom: 0
+          }}
+        />
       </div>
     );
   };
@@ -140,27 +157,40 @@ const TiffUploader: React.FC = () => {
         </div>
       )}
 
-      {/* Vertically scrollable, zoomable TIFF pages */}
+      {/* Vertically scrollable, zoomable TIFF pages as a book */}
       <div
         ref={scrollContainerRef}
         style={{
           maxHeight: '70vh',
           overflowY: 'auto',
           border: '1px solid #ccc',
-          borderRadius: 4,
-          background: '#fff',
+          borderRadius: 8,
+          background: '#eae7df',
           margin: '0 auto',
-          padding: 12,
+          padding: 32,
           minHeight: 200,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 24
+          boxShadow: '0 8px 32px 0 rgba(0,0,0,0.10)',
         }}
       >
-        {pages.map((ifd, idx) => (
-          <TiffPageCanvas key={idx} ifd={ifd} zoom={zoom} idx={idx} />
-        ))}
+        <div
+          style={{
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: `${48 * zoom}px`, // scalable gap
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top center',
+            transition: 'transform 0.15s',
+          }}
+        >
+          {pages.map((ifd, idx) => (
+            <TiffPageCanvas key={idx} ifd={ifd} idx={idx} />
+          ))}
+        </div>
       </div>
     </div>
   );
