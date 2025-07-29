@@ -5,25 +5,20 @@ const TiffUploader: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [pages, setPages] = useState<any[]>([]);
+  const [jpegUrl, setJpegUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setLoading(true);
-    setError(null);
-
+  // Common logic to decode and display TIFF from ArrayBuffer
+  const decodeAndSetPages = (arrayBuffer: ArrayBuffer) => {
+    setJpegUrl(null); // Clear JPEG if any
     try {
-      const arrayBuffer = await file.arrayBuffer();
       const ifds = UTIF.decode(arrayBuffer);
       if (ifds.length === 0) {
         setError('No images found in the TIFF file.');
-        setLoading(false);
+        setPages([]);
         return;
       }
-      // Decode all pages
       for (let i = 0; i < ifds.length; i++) {
         try {
           UTIF.decodeImage(arrayBuffer, ifds[i]);
@@ -32,9 +27,52 @@ const TiffUploader: React.FC = () => {
         }
       }
       setPages(ifds);
+      setError(null);
     } catch (err) {
-      console.error('Failed to load TIFF:', err);
+      console.error('Failed to decode TIFF:', err);
       setError(`Failed to decode the TIFF file: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setPages([]);
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setJpegUrl(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      decodeAndSetPages(arrayBuffer);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch TIFF from backend
+  const handleFetchFromBackend = async () => {
+    setLoading(true);
+    setError(null);
+    setJpegUrl(null);
+    try {
+      const response = await fetch('http://localhost:8080/file?mimeType=image/tiff');
+      if (!response.ok) throw new Error('Failed to fetch file from backend');
+      const contentType = response.headers.get('content-type') || '';
+      const blob = await response.blob();
+      if (contentType.includes('image/jpeg')) {
+        // Show JPEG as <img>
+        const url = URL.createObjectURL(blob);
+        setJpegUrl(url);
+        setPages([]);
+      } else if (contentType.includes('image/tiff') || contentType.includes('image/tif')) {
+        // Decode TIFF
+        const arrayBuffer = await blob.arrayBuffer();
+        decodeAndSetPages(arrayBuffer);
+      } else {
+        setError('Unsupported file type from backend.');
+      }
+    } catch (err) {
+      setError('Failed to fetch or decode file from backend.');
     } finally {
       setLoading(false);
     }
@@ -46,7 +84,7 @@ const TiffUploader: React.FC = () => {
   const handleZoomReset = () => setZoom(1);
 
   // Child component for each TIFF page (no zoom here, zoom is on the group)
-  const TiffPageCanvas: React.FC<{ ifd: any; idx: number }> = ({ ifd, idx }) => {
+  const TiffPageCanvas: React.FC<{ ifd: any; idx: number }> = ({ ifd }) => {
     const canvasRef = React.useRef<HTMLCanvasElement>(null);
     React.useEffect(() => {
       if (canvasRef.current && ifd.width && ifd.height) {
@@ -65,39 +103,15 @@ const TiffUploader: React.FC = () => {
       }
     }, [ifd]);
     return (
-      <div
+      <canvas
+        ref={canvasRef}
         style={{
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          margin: '0 auto',
-          background: '#f9f7f3',
-          borderRadius: 12,
-          boxShadow: '0 4px 24px 0 rgba(0,0,0,0.10), 0 1.5px 0 #e0e0e0',
-          padding: 32,
-          marginBottom: 48,
-          border: '1.5px solid #e0e0e0',
-          position: 'relative',
-          minWidth: 320,
-          maxWidth: 900
+          display: 'block',
+          maxWidth: '100%',
+          height: 'auto',
+          marginBottom: 16 // just a small gap between pages
         }}
-      >
-        <div style={{ marginBottom: 12, color: '#888', fontSize: 15, fontWeight: 500, letterSpacing: 1 }}>Page {idx + 1} ({ifd.width} × {ifd.height})</div>
-        <canvas
-          ref={canvasRef}
-          style={{
-            display: 'block',
-            maxWidth: '100%',
-            height: 'auto',
-            background: '#fff',
-            border: '1.5px solid #d0d0d0',
-            borderRadius: 6,
-            boxShadow: '0 2px 8px 0 rgba(0,0,0,0.07)',
-            marginBottom: 0
-          }}
-        />
-      </div>
+      />
     );
   };
 
@@ -121,13 +135,16 @@ const TiffUploader: React.FC = () => {
 
   return (
     <div style={{ padding: '20px' }}>
-      <div style={{ marginBottom: '20px' }}>
+      <div style={{ marginBottom: '20px', display: 'flex', gap: 12, alignItems: 'center' }}>
         <input 
           type="file" 
           accept=".tif,.tiff" 
           onChange={handleFileChange}
           disabled={loading}
         />
+        <button onClick={handleFetchFromBackend} disabled={loading} style={{ padding: '6px 16px' }}>
+          Load TIFF from backend
+        </button>
         {loading && <span style={{ marginLeft: '10px', color: '#007bff' }}>Loading...</span>}
       </div>
 
@@ -157,41 +174,46 @@ const TiffUploader: React.FC = () => {
         </div>
       )}
 
-      {/* Vertically scrollable, zoomable TIFF pages as a book */}
-      <div
-        ref={scrollContainerRef}
-        style={{
-          maxHeight: '70vh',
-          overflowY: 'auto',
-          border: '1px solid #ccc',
-          borderRadius: 8,
-          background: '#eae7df',
-          margin: '0 auto',
-          padding: 32,
-          minHeight: 200,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          boxShadow: '0 8px 32px 0 rgba(0,0,0,0.10)',
-        }}
-      >
+      {/* Show JPEG if present, else TIFF pages */}
+      {jpegUrl ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '0 auto', padding: 32 }}>
+          <img src={jpegUrl} alt="JPEG from backend" style={{ maxWidth: '100%' }} />
+        </div>
+      ) : (
         <div
+          ref={scrollContainerRef}
           style={{
-            width: '100%',
+            maxHeight: '70vh',
+            overflowY: 'auto',
+            margin: '0 auto',
+            padding: 0,
+            minHeight: 200,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: `${48 * zoom}px`, // scalable gap
-            transform: `scale(${zoom})`,
-            transformOrigin: 'top center',
-            transition: 'transform 0.15s',
+            background: 'none',
+            border: 'none',
+            boxShadow: 'none',
           }}
         >
-          {pages.map((ifd, idx) => (
-            <TiffPageCanvas key={idx} ifd={ifd} idx={idx} />
-          ))}
+          <div
+            style={{
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 0,
+              transform: `scale(${zoom})`,
+              transformOrigin: 'top center',
+              transition: 'transform 0.15s',
+            }}
+          >
+            {pages.map((ifd, idx) => (
+              <TiffPageCanvas key={idx} ifd={ifd} idx={idx} />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
