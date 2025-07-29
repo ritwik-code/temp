@@ -5,13 +5,13 @@ const TiffUploader: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [pages, setPages] = useState<any[]>([]);
-  const [jpegUrl, setJpegUrl] = useState<string | null>(null);
+  const [jpegImage, setJpegImage] = useState<HTMLImageElement | null>(null);
   const [loading, setLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
 
   // Common logic to decode and display TIFF from ArrayBuffer
   const decodeAndSetPages = (arrayBuffer: ArrayBuffer) => {
-    setJpegUrl(null); // Clear JPEG if any
+    setJpegImage(null); // Clear JPEG if any
     try {
       const ifds = UTIF.decode(arrayBuffer);
       if (ifds.length === 0) {
@@ -36,7 +36,7 @@ const TiffUploader: React.FC = () => {
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    setJpegUrl(null);
+    setJpegImage(null);
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
@@ -53,17 +53,21 @@ const TiffUploader: React.FC = () => {
   const handleFetchFromBackend = async () => {
     setLoading(true);
     setError(null);
-    setJpegUrl(null);
+    setJpegImage(null);
     try {
-      const response = await fetch('http://localhost:8080/file?mimeType=image/tiff');
+      const response = await fetch('http://localhost:8080/file?mimeType=image/jpeg');
       if (!response.ok) throw new Error('Failed to fetch file from backend');
       const contentType = response.headers.get('content-type') || '';
       const blob = await response.blob();
       if (contentType.includes('image/jpeg')) {
-        // Show JPEG as <img>
-        const url = URL.createObjectURL(blob);
-        setJpegUrl(url);
-        setPages([]);
+        // Render JPEG in canvas
+        const img = new window.Image();
+        img.onload = () => {
+          setJpegImage(img);
+          setPages([]);
+        };
+        img.onerror = () => setError('Failed to load JPEG image.');
+        img.src = URL.createObjectURL(blob);
       } else if (contentType.includes('image/tiff') || contentType.includes('image/tif')) {
         // Decode TIFF
         const arrayBuffer = await blob.arrayBuffer();
@@ -109,7 +113,31 @@ const TiffUploader: React.FC = () => {
           display: 'block',
           maxWidth: '100%',
           height: 'auto',
-          marginBottom: 16 // just a small gap between pages
+          marginBottom: 16
+        }}
+      />
+    );
+  };
+
+  // JPEG canvas renderer
+  const JpegCanvas: React.FC<{ img: HTMLImageElement }> = ({ img }) => {
+    const canvasRef = React.useRef<HTMLCanvasElement>(null);
+    React.useEffect(() => {
+      if (canvasRef.current && img.complete) {
+        canvasRef.current.width = img.naturalWidth;
+        canvasRef.current.height = img.naturalHeight;
+        const ctx = canvasRef.current.getContext('2d');
+        if (ctx) ctx.drawImage(img, 0, 0);
+      }
+    }, [img]);
+    return (
+      <canvas
+        ref={canvasRef}
+        style={{
+          display: 'block',
+          maxWidth: '100%',
+          height: 'auto',
+          marginBottom: 16
         }}
       />
     );
@@ -119,7 +147,7 @@ const TiffUploader: React.FC = () => {
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
-      if ((e.ctrlKey || e.metaKey) && pages.length > 0) {
+      if ((e.ctrlKey || e.metaKey) && (pages.length > 0 || jpegImage)) {
         e.preventDefault();
         if (e.deltaY < 0) {
           setZoom((z) => Math.min(z * 1.1, 10));
@@ -131,7 +159,7 @@ const TiffUploader: React.FC = () => {
     const el = scrollContainerRef.current;
     if (el) el.addEventListener('wheel', handleWheel, { passive: false });
     return () => { if (el) el.removeEventListener('wheel', handleWheel); };
-  }, [pages.length]);
+  }, [pages.length, jpegImage]);
 
   return (
     <div style={{ padding: '20px' }}>
@@ -174,46 +202,44 @@ const TiffUploader: React.FC = () => {
         </div>
       )}
 
-      {/* Show JPEG if present, else TIFF pages */}
-      {jpegUrl ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '0 auto', padding: 32 }}>
-          <img src={jpegUrl} alt="JPEG from backend" style={{ maxWidth: '100%' }} />
-        </div>
-      ) : (
+      {/* Show JPEG canvas if present, else TIFF canvases */}
+      <div
+        ref={scrollContainerRef}
+        style={{
+          maxHeight: '70vh',
+          overflowY: 'auto',
+          margin: '0 auto',
+          padding: 0,
+          minHeight: 200,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          background: 'none',
+          border: 'none',
+          boxShadow: 'none',
+        }}
+      >
         <div
-          ref={scrollContainerRef}
           style={{
-            maxHeight: '70vh',
-            overflowY: 'auto',
-            margin: '0 auto',
-            padding: 0,
-            minHeight: 200,
+            width: '100%',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            background: 'none',
-            border: 'none',
-            boxShadow: 'none',
+            gap: 0,
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top center',
+            transition: 'transform 0.15s',
           }}
         >
-          <div
-            style={{
-              width: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 0,
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top center',
-              transition: 'transform 0.15s',
-            }}
-          >
-            {pages.map((ifd, idx) => (
+          {jpegImage ? (
+            <JpegCanvas img={jpegImage} />
+          ) : (
+            pages.map((ifd, idx) => (
               <TiffPageCanvas key={idx} ifd={ifd} idx={idx} />
-            ))}
-          </div>
+            ))
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
