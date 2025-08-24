@@ -1,0 +1,14 @@
+   File pdfFile = new File("/tmp/" + docId + ".pdf");
+    PDDocument document = PDDocument.load(pdfFile);
+    PDFRenderer renderer = new PDFRenderer(document);
+
+    List<String> images = new ArrayList<>();
+    for (int page = 0; page < document.getNumberOfPages(); page++) {
+        BufferedImage bim = renderer.renderImageWithDPI(page, 150, ImageType.RGB);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(bim, "JPEG", baos);
+        String base64 = Base64.getEncoder().encodeToString(baos.toByteArray());
+        images.add("data:image/jpeg;base64," + base64);
+    }
+    document.close();
+    return ResponseEntity.ok(images);
