@@ -1,0 +1,68 @@
+import org.springframework.core.io.Resource;
+
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Iterator;
+import java.util.List;
+
+public class TiffConverter {
+
+    public static List<String> convertTiffToBase64Jpegs(Resource resource) throws Exception {
+        List<String> base64Images = new ArrayList<>();
+
+        try (InputStream inputStream = resource.getInputStream();
+             javax.imageio.stream.ImageInputStream imageInputStream = ImageIO.createImageInputStream(inputStream)) {
+
+            Iterator<javax.imageio.ImageReader> readers = ImageIO.getImageReadersByFormatName("tiff");
+            if (!readers.hasNext()) {
+                throw new IllegalArgumentException("No TIFF ImageReader found!");
+            }
+
+            javax.imageio.ImageReader reader = readers.next();
+            reader.setInput(imageInputStream);
+
+            int numPages = reader.getNumImages(true);
+
+            for (int i = 0; i < numPages; i++) {
+                BufferedImage bufferedImage = reader.read(i);
+
+                // Force JPEG writer
+                Iterator<ImageWriter> jpegWriters = ImageIO.getImageWritersByFormatName("jpeg");
+                if (!jpegWriters.hasNext()) {
+                    throw new IllegalStateException("No JPEG writers found!");
+                }
+                ImageWriter jpegWriter = jpegWriters.next();
+
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                try (ImageOutputStream ios = ImageIO.createImageOutputStream(baos)) {
+                    jpegWriter.setOutput(ios);
+
+                    ImageWriteParam jpegParams = jpegWriter.getDefaultWriteParam();
+                    if (jpegParams.canWriteCompressed()) {
+                        jpegParams.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                        jpegParams.setCompressionQuality(0.85f); // quality: 0.0 = worst, 1.0 = best
+                    }
+
+                    jpegWriter.write(null, new IIOImage(bufferedImage, null, null), jpegParams);
+                }
+                jpegWriter.dispose();
+
+                // Encode to Base64 (now definitely JPEG)
+                String base64String = Base64.getEncoder().encodeToString(baos.toByteArray());
+                base64Images.add(base64String);
+            }
+
+            reader.dispose();
+        }
+
+        return base64Images;
+    }
+}
