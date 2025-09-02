@@ -90,4 +90,5 @@ _____________________________________
 
 
 
+[IO.File]::WriteAllBytes("C:\Users\YourName\Desktop\mykey.pk8", [Convert]::FromBase64String((Get-Content "C:\Users\YourName\Desktop\mykey.pk8.b64" -Raw)))
 
