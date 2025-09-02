@@ -66,3 +66,28 @@ public class TiffConverter {
         return base64Images;
     }
 }
+
+________________________________
+for (int i = 0; i < numPages; i++) {
+    BufferedImage bufferedImage = reader.read(i);
+
+    // Force convert to RGB for JPEG
+    BufferedImage rgbImage = new BufferedImage(
+            bufferedImage.getWidth(),
+            bufferedImage.getHeight(),
+            BufferedImage.TYPE_INT_RGB
+    );
+    rgbImage.createGraphics().drawImage(bufferedImage, 0, 0, null);
+
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    ImageIO.write(rgbImage, "jpeg", baos);  // guaranteed JPEG
+    baos.flush();
+
+    String base64String = Base64.getEncoder().encodeToString(baos.toByteArray());
+    base64Images.add(base64String);
+}
+_____________________________________
+
+
+
+
